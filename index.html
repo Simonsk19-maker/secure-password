@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Password Generator &amp; Secure Share</title>
+<meta name="description" content="Make a strong password in your browser, and share it with a one-time self-destructing link. Nothing is sent in plain text.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="head"><div class="wrap">
+  <span class="brand"><span class="dot"></span> Password Generator</span>
+  <nav class="nav"><a href="index.html">Generate</a><a href="#share">Secure share</a></nav>
+</div></header>
+
+<div class="wrap">
+  <h1>Make a strong password</h1>
+  <p class="lead">It's made in your browser using secure randomness. Nothing is sent anywhere.</p>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="tab on" id="tabRandom" onclick="mode('random')">Random characters</button>
+      <button class="tab" id="tabWords" onclick="mode('words')">Memorable words</button>
+    </div>
+
+    <div class="out">
+      <div class="pw" id="pw">—</div>
+      <button class="btn" onclick="copyPw()" id="copyBtn">Copy</button>
+    </div>
+    <div class="meter"><span id="meter"></span></div>
+    <div class="small" id="strength"></div>
+
+    <!-- random options -->
+    <div id="optRandom">
+      <div class="row">
+        <label style="flex:1">Length: <strong id="lenVal">16</strong>
+          <input type="range" min="8" max="64" value="16" id="len" oninput="document.getElementById('lenVal').textContent=this.value;gen()" style="width:60%"></label>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="cUpper" checked onchange="gen()"> Capitals</label>
+        <label><input type="checkbox" id="cLower" checked onchange="gen()"> Small letters</label>
+        <label><input type="checkbox" id="cDigit" checked onchange="gen()"> Numbers</label>
+        <label><input type="checkbox" id="cSym" checked onchange="gen()"> Symbols</label>
+      </div>
+    </div>
+
+    <!-- words options -->
+    <div id="optWords" class="hide">
+      <div class="row">
+        <label style="flex:1">Words: <strong id="wcVal">5</strong>
+          <input type="range" min="3" max="8" value="5" id="wc" oninput="document.getElementById('wcVal').textContent=this.value;gen()" style="width:55%"></label>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="wCap" checked onchange="gen()"> Capitalise</label>
+        <label><input type="checkbox" id="wNum" checked onchange="gen()"> Add a number</label>
+      </div>
+    </div>
+
+    <button class="btn block" onclick="gen()">↻ New password</button>
+  </div>
+
+  <h1 id="share">Send it securely (one-time link)</h1>
+  <p class="lead">Create a link that shows the password <strong>once</strong>, then destroys it forever. The password is encrypted in your browser first.</p>
+
+  <div class="card">
+    <label class="small">What to send (defaults to the password above — you can change it):</label>
+    <textarea id="secret"></textarea>
+    <div class="row">
+      <label class="small">Extra PIN (optional, recommended):
+        <input type="text" id="pin" maxlength="12" placeholder="e.g. 7391" style="width:120px"></label>
+    </div>
+    <p class="small">With a PIN, the link alone isn't enough — tell the person the PIN a different way (text/call). Even we couldn't read it.</p>
+    <button class="btn block" id="makeLink" onclick="makeLink()">Create one-time link</button>
+
+    <div id="linkResult" class="hide">
+      <div class="note">Link created. It works <strong>once</strong>, then the secret is gone. It also auto-expires in 7 days if unopened.</div>
+      <div class="linkbox" id="theLink"></div>
+      <button class="btn sec block" onclick="copyLink()">Copy link</button>
+    </div>
+    <div id="linkOff" class="note warn hide">The one-time link needs the small free server set up first (see <code>worker/README.md</code>). The password generator above works without it.</div>
+  </div>
+
+  <div class="note">All of this happens in your browser. The password generator sends nothing. The one-time link stores only an <strong>encrypted</strong> blob; the key stays in the link, so the server can never read your password.</div>
+</div>
+
+<footer><div class="wrap">Free tool. Passwords are generated with your browser's secure randomness (Web Crypto). Share links use AES-GCM encryption with the key kept out of the server.</div></footer>
+
+<script src="config.js"></script>
+<script src="assets/words.js"></script>
+<script src="assets/sp-crypto.js"></script>
+<script>
+let curMode='random';
+function mode(m){ curMode=m;
+  document.getElementById('tabRandom').classList.toggle('on',m==='random');
+  document.getElementById('tabWords').classList.toggle('on',m==='words');
+  document.getElementById('optRandom').classList.toggle('hide',m!=='random');
+  document.getElementById('optWords').classList.toggle('hide',m==='random');
+  gen();
+}
+function gen(){
+  let pw, bits;
+  if(curMode==='random'){
+    const opts={ length:+document.getElementById('len').value,
+      upper:document.getElementById('cUpper').checked, lower:document.getElementById('cLower').checked,
+      digits:document.getElementById('cDigit').checked, symbols:document.getElementById('cSym').checked };
+    pw=SP.generatePassword(opts); bits=SP.entropyBits(pw);
+  } else {
+    const wc=+document.getElementById('wc').value;
+    pw=SP.generatePassphrase(window.SP_WORDS, wc, { capitalise:document.getElementById('wCap').checked, number:document.getElementById('wNum').checked });
+    bits=SP.passphraseBits(window.SP_WORDS.length, wc);
+  }
+  document.getElementById('pw').textContent=pw;
+  const r=SP.rating(bits);
+  const m=document.getElementById('meter'); m.style.width=r.pct+'%'; m.style.background=r.colour;
+  document.getElementById('strength').innerHTML='<strong style="color:'+r.colour+'">'+r.label+'</strong> — about '+bits+' bits of randomness';
+  document.getElementById('secret').value=pw;
+}
+function copyPw(){ navigator.clipboard.writeText(document.getElementById('pw').textContent).then(()=>{ const b=document.getElementById('copyBtn'); b.textContent='Copied'; setTimeout(()=>b.textContent='Copy',1200); }); }
+
+let lastLink='';
+async function makeLink(){
+  const btn=document.getElementById('makeLink');
+  if(!window.SP_WORKER_URL){ document.getElementById('linkOff').classList.remove('hide'); return; }
+  const secret=document.getElementById('secret').value; if(!secret){ return; }
+  const pin=document.getElementById('pin').value.trim();
+  btn.disabled=true; btn.textContent='Creating...';
+  try{
+    const { blob, fragment } = await SP.encryptSecret(secret, pin);
+    const res = await fetch(window.SP_WORKER_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body:blob });
+    const data = await res.json(); if(!data.id) throw new Error('no id');
+    const base = location.href.replace(/index\.html.*$/,'').replace(/[#?].*$/,'');
+    lastLink = base+'open.html#'+data.id+'.'+fragment+(pin?'.p':'');
+    document.getElementById('theLink').textContent=lastLink;
+    document.getElementById('linkResult').classList.remove('hide');
+    document.getElementById('linkOff').classList.add('hide');
+  }catch(e){ alert('Could not create the link. Check the server is set up (worker/README.md).'); }
+  btn.disabled=false; btn.textContent='Create one-time link';
+}
+function copyLink(){ navigator.clipboard.writeText(lastLink); }
+gen();
+</script>
+</body>
+</html>

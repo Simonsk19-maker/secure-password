@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>One-time secret</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="head"><div class="wrap">
+  <span class="brand"><span class="dot"></span> One-time secret</span>
+</div></header>
+
+<div class="wrap">
+  <h1>Someone shared a secret with you</h1>
+  <p class="lead">This can be opened <strong>once</strong>. After you reveal it, it's destroyed and the link stops working.</p>
+
+  <div class="card" id="pinCard" style="display:none">
+    <label class="small">This secret is protected by a PIN. Enter the PIN you were given:</label>
+    <div class="row"><input type="text" id="pin" maxlength="12" placeholder="PIN" style="width:140px"></div>
+    <button class="btn block" onclick="reveal()">Reveal the secret</button>
+  </div>
+
+  <div class="card" id="revealCard" style="display:none">
+    <button class="btn block" id="revealBtn" onclick="reveal()">Reveal the secret (one time)</button>
+  </div>
+
+  <div id="result" class="hide">
+    <div class="reveal" id="secretText"></div>
+    <button class="btn sec block" onclick="copyIt()">Copy</button>
+    <div class="note warn">This link has now been used and won't work again. Copy the secret now if you need it.</div>
+  </div>
+
+  <div id="gone" class="note bad hide">This link has already been used, or has expired. For safety a one-time secret can only be opened once — ask the sender for a new one.</div>
+  <div id="bad" class="note bad hide">This link is incomplete or invalid.</div>
+</div>
+
+<footer><div class="wrap">The secret was encrypted in the sender's browser. The server only ever held an encrypted blob, and it has now been deleted.</div></footer>
+
+<script src="config.js"></script>
+<script src="assets/sp-crypto.js"></script>
+<script>
+const frag = location.hash.slice(1);
+const parts = frag.split('.');
+const id = parts[0], keyStr = parts[1], needPin = parts[2]==='p';
+let blob=null;
+
+function show(elId){ document.getElementById(elId).classList.remove('hide'); }
+function hide(elId){ document.getElementById(elId).classList.add('hide'); }
+
+async function init(){
+  if(!id || !keyStr){ show('bad'); return; }
+  if(!window.SP_WORKER_URL){ document.getElementById('bad').textContent='This site has no secret server set up yet.'; show('bad'); return; }
+  // Fetch (and delete) the encrypted blob now, so it is one-time even if the
+  // reader closes the page before decrypting.
+  try{
+    const res = await fetch(window.SP_WORKER_URL+'?id='+encodeURIComponent(id));
+    if(res.status===404){ show('gone'); return; }
+    const data = await res.json(); if(!data.blob){ show('gone'); return; }
+    blob = data.blob;
+    if(needPin){ document.getElementById('pinCard').style.display='block'; }
+    else { document.getElementById('revealCard').style.display='block'; }
+  }catch(e){ show('gone'); }
+}
+async function reveal(){
+  const pin = needPin ? (document.getElementById('pin').value.trim()) : '';
+  if(needPin && !pin){ return; }
+  try{
+    const secret = await SP.decryptSecret(blob, keyStr, pin);
+    document.getElementById('secretText').textContent=secret;
+    document.getElementById('pinCard').style.display='none';
+    document.getElementById('revealCard').style.display='none';
+    show('result');
+  }catch(e){
+    alert(needPin ? 'Wrong PIN, or the link is damaged. Note: the secret was already used up when this page loaded — if the PIN is wrong you will need a new link.' : 'Could not open this secret — the link may be damaged.');
+  }
+}
+function copyIt(){ navigator.clipboard.writeText(document.getElementById('secretText').textContent); }
+init();
+</script>
+</body>
+</html>

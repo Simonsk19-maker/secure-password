@@ -1,0 +1,8 @@
+name = "secret-store"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# After you create the KV namespace (see README.md), paste its id below.
+[[kv_namespaces]]
+binding = "SECRETS"
+id = "PASTE_YOUR_KV_NAMESPACE_ID_HERE"
